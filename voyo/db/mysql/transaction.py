@@ -1,59 +1,59 @@
+import contextvars
 import functools
-import inspect
-import threading
+from typing import Optional
 
-from voyo.db.mysql.conn_pool import YoConnPool, get_default_pool
+import aiomysql
 
-_tx_local = threading.local()
+from .conn_pool import _default_pool, get_default_pool
 
-def _get_tx_stack():
-    if not hasattr(_tx_local, "stack"):
-        _tx_local.stack = []
-    return _tx_local.stack
+_tx_conn: contextvars.ContextVar[Optional[aiomysql.Connection]] = contextvars.ContextVar(
+    "_tx_conn", default=None
+)
+
+
+def get_tx_conn() -> Optional[aiomysql.Connection]:
+    return _tx_conn.get()
+
 
 class Transaction:
-
     def __init__(self, propagation="required", pool=None):
         if propagation not in ("required", "new"):
             raise ValueError("propagation must be 'required' or 'new'")
         self.propagation = propagation
-        self.pool = pool or get_default_pool()
-        if self.pool is None:
-            raise RuntimeError(
-                "No connection pool configured for @Transaction. "
-                "Call yo_mysql.set_default_pool(pool) first."
-            )
+        self.pool = pool
 
     def __call__(self, func):
-        sig = inspect.signature(func)
-        params = list(sig.parameters.values())
-
-        has_conn_param = bool(params) and params[-1].name == 'conn'
-
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            stack = _get_tx_stack()
+        async def wrapper(*args, **kwargs):
+            outer = _tx_conn.get()
 
-            if stack and self.propagation != "new":
-                conn = stack[-1]["conn"]
+            if outer is not None and self.propagation != "new":
+                token = None
+                new_conn = False
+                conn = outer
+            else:
+                pool = self.pool or get_default_pool()
+                if pool is None:
+                    raise RuntimeError(
+                        "No connection pool configured. "
+                        "Call set_default_pool(pool) first."
+                    )
+                conn = await pool.get_conn()
+                token = _tx_conn.set(conn)
+                new_conn = True
 
-                if has_conn_param and "conn" not in kwargs:
-                    kwargs["conn"] = conn
-
-                return func(*args, **kwargs)
-
-            conn = self.pool.get_conn()
-            stack.append({"conn": conn})
-
-            if has_conn_param and "conn" not in kwargs:
-                kwargs["conn"] = conn
             try:
-                result = func(*args, **kwargs)
-                conn.commit()
+                result = await func(*args, **kwargs)
+                if new_conn:
+                    await conn.commit()
                 return result
+            except Exception:
+                if new_conn:
+                    await conn.rollback()
+                raise
             finally:
-                conn.rollback()
-                stack.pop()
-                self.pool.release_conn(conn)
+                if new_conn:
+                    _tx_conn.reset(token)
+                    await pool.release_conn(conn)
 
         return wrapper
