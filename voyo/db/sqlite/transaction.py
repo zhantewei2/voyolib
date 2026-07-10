@@ -1,8 +1,23 @@
 import contextvars
 import functools
 import inspect
+from typing import Optional
 
-from voyo.db.mysql.conn_pool import YoConnPool, get_default_pool
+import aiosqlite
+
+_db_config: Optional[dict] = None
+
+
+def set_database(database: str, **connect_kwargs) -> None:
+    global _db_config
+    _db_config = {"database": database, **connect_kwargs}
+
+
+def _get_db_config() -> dict:
+    if _db_config is None:
+        raise RuntimeError("No database configured. Call set_database() first.")
+    return _db_config
+
 
 _tx_stack: contextvars.ContextVar[list] = contextvars.ContextVar("_tx_stack", default=[])
 
@@ -11,23 +26,29 @@ def _get_tx_stack() -> list:
     return _tx_stack.get()
 
 
+def get_current_connection() -> Optional[aiosqlite.Connection]:
+    stack = _get_tx_stack()
+    return stack[-1] if stack else None
+
+
+async def _create_conn() -> aiosqlite.Connection:
+    config = _get_db_config()
+    conn = await aiosqlite.connect(**config)
+    conn.row_factory = aiosqlite.Row
+    return conn
+
+
 class Transaction:
 
-    def __init__(self, propagation="required", pool=None):
+    def __init__(self, propagation: str = "required"):
         if propagation not in ("required", "new"):
             raise ValueError("propagation must be 'required' or 'new'")
         self.propagation = propagation
-        self.pool = pool or get_default_pool()
-        if self.pool is None:
-            raise RuntimeError(
-                "No connection pool configured for @Transaction. "
-                "Call set_default_pool(pool) first."
-            )
 
     def __call__(self, func):
         if inspect.iscoroutinefunction(func):
             return self._wrap_async(func)
-        raise TypeError("@Transaction now requires an async function")
+        raise TypeError("@Transaction requires an async function")
 
     def _wrap_async(self, func):
         sig = inspect.signature(func)
@@ -39,13 +60,16 @@ class Transaction:
             stack = _get_tx_stack()
 
             if stack and self.propagation != "new":
-                conn = stack[-1]["conn"]
+                conn = stack[-1]
                 if has_conn_param and "conn" not in kwargs:
                     kwargs["conn"] = conn
                 return await func(*args, **kwargs)
 
-            conn = await self.pool.get_conn()
-            token = _tx_stack.set(stack + [{"conn": conn}])
+            conn = await _create_conn()
+            token = _tx_stack.set(stack + [conn])
+
+            if has_conn_param and "conn" not in kwargs:
+                kwargs["conn"] = conn
             try:
                 result = await func(*args, **kwargs)
                 await conn.commit()
@@ -55,6 +79,6 @@ class Transaction:
                 raise
             finally:
                 _tx_stack.reset(token)
-                await self.pool.release_conn(conn)
+                await conn.close()
 
         return wrapper
