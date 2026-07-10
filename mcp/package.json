@@ -1,0 +1,21 @@
+{
+  "name": "@voyo/docs-db-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for @voyo/docs-db document knowledge base",
+  "type": "module",
+  "bin": {
+    "docs-db-mcp": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@voyo/docs-db": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.0"
+  }
+}

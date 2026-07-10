@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import contextvars
 import functools
+import inspect
 import logging
 import re
-import threading
 import uuid
 from collections.abc import Callable
 from typing import Any, Optional, TypeVar
 
-from voyo.db.oracle.conn_pool import ConnectionPool, _PooledConnection
+import oracledb
+
+from voyo.db.oracle.conn_pool import ConnectionPool, get_default_pool
 
 logger = logging.getLogger(__name__)
 
@@ -16,51 +19,11 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 _SAVEPOINT_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_#$]*$", re.ASCII)
 
-
-class _TransactionContext:
-    __slots__ = ("pool", "connection", "savepoint_name", "committed", "rolled_back")
-
-    def __init__(
-        self,
-        pool: ConnectionPool,
-        connection: _PooledConnection,
-        savepoint_name: Optional[str] = None,
-    ) -> None:
-        self.pool = pool
-        self.connection = connection
-        self.savepoint_name = savepoint_name
-        self.committed = False
-        self.rolled_back = False
+_tx_stack: contextvars.ContextVar[list] = contextvars.ContextVar("_tx_stack", default=[])
 
 
-class _TransactionStack:
-    def __init__(self) -> None:
-        self._local = threading.local()
-
-    def _get_stack(self) -> list[_TransactionContext]:
-        if not hasattr(self._local, "stack"):
-            self._local.stack = []
-        return self._local.stack
-
-    def current(self) -> Optional[_TransactionContext]:
-        stack = self._get_stack()
-        return stack[-1] if stack else None
-
-    def push(self, ctx: _TransactionContext) -> None:
-        self._get_stack().append(ctx)
-
-    def pop(self) -> Optional[_TransactionContext]:
-        stack = self._get_stack()
-        return stack.pop() if stack else None
-
-    def is_active(self) -> bool:
-        return bool(self._get_stack())
-
-    def depth(self) -> int:
-        return len(self._get_stack())
-
-
-_TRANSACTION_STACK = _TransactionStack()
+def _get_tx_stack() -> list:
+    return _tx_stack.get()
 
 
 def _generate_savepoint_name() -> str:
@@ -72,64 +35,68 @@ def _validate_savepoint_name(name: str) -> None:
         raise ValueError(f"invalid Oracle savepoint name: {name!r}")
 
 
-def get_current_connection() -> Optional[_PooledConnection]:
-    ctx = _TRANSACTION_STACK.current()
-    return ctx.connection if ctx else None
+def get_current_connection() -> Optional[oracledb.AsyncConnection]:
+    stack = _get_tx_stack()
+    return stack[-1] if stack else None
 
 
-def transaction(pool: ConnectionPool) -> Callable[[F], F]:
+def transaction(pool: Optional[ConnectionPool] = None) -> Callable[[F], F]:
+    if pool is None:
+        pool = get_default_pool()
+    if pool is None:
+        raise RuntimeError(
+            "No connection pool for @transaction. "
+            "Pass pool= or call set_default_pool() first."
+        )
+
     def decorator(func: F) -> F:
+        sig = inspect.signature(func)
+        params = list(sig.parameters.values())
+        has_conn_param = bool(params) and params[-1].name == "conn"
+
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            outer_ctx = _TRANSACTION_STACK.current()
-            is_nested = outer_ctx is not None
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            stack = _get_tx_stack()
+            is_nested = bool(stack)
 
             if is_nested:
-                conn = outer_ctx.connection
-                if args and args[0] is conn:
-                    call_args = args
-                else:
-                    call_args = (conn,) + args
+                conn = stack[-1]
                 savepoint_name = _generate_savepoint_name()
                 _validate_savepoint_name(savepoint_name)
-                cursor = conn.cursor()
-                cursor.execute(f"SAVEPOINT {savepoint_name}")
+                async with conn.cursor() as cursor:
+                    await cursor.execute(f"SAVEPOINT {savepoint_name}")
                 logger.debug("created savepoint %s", savepoint_name)
-                ctx = _TransactionContext(pool, conn, savepoint_name)
+                ctx = {"conn": conn, "savepoint": savepoint_name}
             else:
-                conn = pool.acquire()
-                call_args = (conn,) + args
-                ctx = _TransactionContext(pool, conn, savepoint_name=None)
+                conn = await pool.acquire()
+                async with conn.cursor() as cursor:
+                    await cursor.execute("BEGIN TRANSACTION")
+                ctx = {"conn": conn, "savepoint": None}
 
-            _TRANSACTION_STACK.push(ctx)
+            token = _tx_stack.set(stack + [conn])
+
+            if has_conn_param and "conn" not in kwargs:
+                kwargs["conn"] = conn
             try:
-                result = func(*call_args, **kwargs)
-                if ctx.savepoint_name:
-                    cursor = conn.cursor()
-                    cursor.execute(f"RELEASE SAVEPOINT {ctx.savepoint_name}")
-                    ctx.committed = True
-                else:
-                    conn.raw.commit()
-                    ctx.committed = True
+                result = await func(*args, **kwargs)
+                async with conn.cursor() as cursor:
+                    if ctx["savepoint"]:
+                        await cursor.execute(f"RELEASE SAVEPOINT {ctx['savepoint']}")
+                    else:
+                        await conn.commit()
                 return result
             except Exception:
-                ctx.rolled_back = True
-                try:
-                    if ctx.savepoint_name:
-                        cursor = conn.cursor()
-                        cursor.execute(f"ROLLBACK TO SAVEPOINT {ctx.savepoint_name}")
-                        cursor.execute(f"RELEASE SAVEPOINT {ctx.savepoint_name}")
+                async with conn.cursor() as cursor:
+                    if ctx["savepoint"]:
+                        await cursor.execute(f"ROLLBACK TO SAVEPOINT {ctx['savepoint']}")
+                        await cursor.execute(f"RELEASE SAVEPOINT {ctx['savepoint']}")
                     else:
-                        conn.raw.rollback()
-                except Exception as rollback_exc:
-                    logger.exception("rollback failed: %s", rollback_exc)
+                        await conn.rollback()
                 raise
             finally:
-                popped = _TRANSACTION_STACK.pop()
-                if popped is not ctx:  # pragma: no cover
-                    logger.error("transaction stack mismatch: expected %r, got %r", ctx, popped)
+                _tx_stack.reset(token)
                 if not is_nested:
-                    conn.close()
+                    await pool.release(conn)
 
         return wrapper  # type: ignore[return-value]
 
@@ -139,6 +106,4 @@ def transaction(pool: ConnectionPool) -> Callable[[F], F]:
 __all__ = [
     "transaction",
     "get_current_connection",
-    "_TransactionContext",
-    "_TransactionStack",
 ]
