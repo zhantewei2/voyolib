@@ -47,6 +47,8 @@ class Transaction:
             conn = await self.pool.get_conn()
             token = _tx_stack.set(stack + [{"conn": conn}])
             try:
+                if has_conn_param and "conn" not in kwargs:
+                    kwargs["conn"] = conn
                 result = await func(*args, **kwargs)
                 await conn.commit()
                 return result
