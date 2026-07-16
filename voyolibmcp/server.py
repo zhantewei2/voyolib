@@ -40,10 +40,10 @@ def _fetch_docs(type_: str, lang: str, query: str, limit: int) -> dict[str, Any]
 
 @mcp.tool()
 def get_common_tool_doc(tool_name: str = "", query: str = "", limit: int = 3) -> str:
-    """获取常规工具文档（unique_id / logger）。
+    """获取常规工具文档（unique_id / logger / methods）。
 
     Args:
-        tool_name: 工具名，如 unique_id 或 logger；为空时按 query 搜索。
+        tool_name: 工具名，如 unique_id、logger 或 methods；为空时按 query 搜索。
         query: 额外查询关键词。
         limit: 返回文档数量上限。
     """

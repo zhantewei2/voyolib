@@ -19,6 +19,7 @@ def main() -> int:
     cases = [
         ("common unique_id", lambda: get_common_tool_doc(tool_name="unique_id")),
         ("common logger", lambda: get_common_tool_doc(tool_name="logger")),
+        ("common methods", lambda: get_common_tool_doc(query="FastAPI 响应")),
         ("db mysql", lambda: get_db_tool_doc(db_type="mysql", query="连接池")),
         ("db oracle", lambda: get_db_tool_doc(db_type="oracle", query="事务")),
         ("db sqlite", lambda: get_db_tool_doc(db_type="sqlite", query="@Transaction")),

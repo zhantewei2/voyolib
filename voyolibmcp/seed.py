@@ -1,4 +1,4 @@
-"""导入 mysql / oracle / sqlite / unique_id / logger 文档索引。"""
+"""导入 mysql / oracle / sqlite / unique_id / logger / methods 文档索引。"""
 
 from __future__ import annotations
 
@@ -36,6 +36,12 @@ SEEDS: list[dict[str, str]] = [
         "lang": "common",
         "question": "logger 日志 init_logger 全局日志",
         "doc_name": "logger",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
+        "question": "FastAPI fastApi接口响应 返回格式 json gzip",
+        "doc_name": "methods",
     },
 ]
 

@@ -6,7 +6,7 @@ Python MCP Server，对外提供 voyo 工具文档查询，内部使用 `po-docs
 
 | Tool | 作用 |
 |------|------|
-| `get_common_tool_doc` | 获取常规工具文档（`unique_id`、`logger`） |
+| `get_common_tool_doc` | 获取常规工具文档（`unique_id`、`logger`、`methods`） |
 | `get_db_tool_doc` | 获取数据库工具文档（`mysql`、`oracle`、`sqlite`） |
 
 ## 启动
