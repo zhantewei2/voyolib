@@ -69,8 +69,12 @@ def transaction(pool: Optional[ConnectionPool] = None) -> Callable[[F], F]:
                 ctx = {"conn": conn, "savepoint": savepoint_name}
             else:
                 conn = await pool.acquire()
-                async with conn.cursor() as cursor:
-                    await cursor.execute("BEGIN TRANSACTION")
+                try:
+                    async with conn.cursor() as cursor:
+                        await cursor.execute("BEGIN TRANSACTION")
+                except BaseException:
+                    await pool.release(conn)
+                    raise
                 ctx = {"conn": conn, "savepoint": None}
 
             token = _tx_stack.set(stack + [conn])
@@ -85,13 +89,16 @@ def transaction(pool: Optional[ConnectionPool] = None) -> Callable[[F], F]:
                     else:
                         await conn.commit()
                 return result
-            except Exception:
-                async with conn.cursor() as cursor:
-                    if ctx["savepoint"]:
-                        await cursor.execute(f"ROLLBACK TO SAVEPOINT {ctx['savepoint']}")
-                        await cursor.execute(f"RELEASE SAVEPOINT {ctx['savepoint']}")
-                    else:
-                        await conn.rollback()
+            except BaseException:
+                try:
+                    async with conn.cursor() as cursor:
+                        if ctx["savepoint"]:
+                            await cursor.execute(f"ROLLBACK TO SAVEPOINT {ctx['savepoint']}")
+                            await cursor.execute(f"RELEASE SAVEPOINT {ctx['savepoint']}")
+                        else:
+                            await conn.rollback()
+                except Exception:
+                    logger.exception("rollback failed")
                 raise
             finally:
                 _tx_stack.reset(token)
