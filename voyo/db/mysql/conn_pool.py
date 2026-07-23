@@ -5,8 +5,6 @@ from typing import Optional
 
 import aiomysql
 
-_default_pool: Optional["YoConnPool"] = None
-
 
 def set_default_pool(pool: "YoConnPool"):
     global _default_pool
@@ -17,34 +15,35 @@ def get_default_pool() -> Optional["YoConnPool"]:
     return _default_pool
 
 
-class ConnPool(ABC):
+_default_pool: Optional["YoConnPool"] = None
 
+
+class ConnPool(ABC):
     @abstractmethod
     async def get_conn(self):
-        pass
+        ...
 
     @abstractmethod
     async def release_conn(self, conn):
-        pass
+        ...
 
 
-class PooledConnection:
+class ConnInfo:
+    """One pooled connection: state machine ready <-> running, with expiry and type."""
 
-    def __init__(self, raw_conn, created_at: float, is_burst: bool = False):
-        self.raw = raw_conn
-        self.created_at = created_at
-        self.is_burst = is_burst
+    __slots__ = ("conn", "state", "conn_type", "expire_at")
 
-    def is_expired(self, max_timeout: float) -> bool:
-        return (time.time() - self.created_at) > max_timeout
+    def __init__(self, conn, conn_type: str, max_timeout: float):
+        self.conn = conn
+        self.state = "ready"  # ready | running
+        self.conn_type = conn_type  # core | burst
+        self.expire_at = time.time() + max_timeout
 
-    async def close(self):
-        if self.raw:
-            try:
-                self.raw.close()
-            except Exception:
-                pass
-            self.raw = None
+    def is_expired(self) -> bool:
+        return time.time() >= self.expire_at
+
+    def refresh_expire(self, max_timeout: float):
+        self.expire_at = time.time() + max_timeout
 
 
 class YoConnPool(ConnPool):
@@ -75,94 +74,116 @@ class YoConnPool(ConnPool):
         self._pool_size = pool_size
         self._max_burst = max_burst
         self._max_timeout = max_timeout
-        self._pool: asyncio.Queue = None
-        self._lock = asyncio.Lock()
-        self._burst_lock = asyncio.Lock()
-        self._burst_count = 0
-        self._conn_map = {}
+        self._core: list[ConnInfo] = []
+        self._burst: list[ConnInfo] = []
+        self._cond: asyncio.Condition = None
         self._initialized = False
+        self._init_lock = asyncio.Lock()
 
     async def _ensure_init(self):
         if self._initialized:
             return
-        async with self._lock:
+        async with self._init_lock:
             if self._initialized:
                 return
-            self._pool = asyncio.Queue(maxsize=self._pool_size)
+            self._cond = asyncio.Condition()
             for _ in range(self._pool_size):
-                pooled = await self._create_connection()
-                self._pool.put_nowait(pooled)
+                conn = await self._connect()
+                self._core.append(ConnInfo(conn, "core", self._max_timeout))
             self._initialized = True
 
-    async def _create_connection(self, is_burst: bool = False) -> PooledConnection:
-        raw = await aiomysql.connect(**self._config)
-        return PooledConnection(raw, time.time(), is_burst=is_burst)
+    async def _connect(self):
+        return await aiomysql.connect(**self._config)
 
-    async def _recycle(self, pooled: PooledConnection) -> PooledConnection:
-        await pooled.close()
-        return await self._create_connection()
+    def _find(self, conn) -> Optional[ConnInfo]:
+        for info in self._core + self._burst:
+            if info.conn is conn:
+                return info
+        return None
 
     async def get_conn(self):
         await self._ensure_init()
+        while True:
+            async with self._cond:
+                info = next((c for c in self._core if c.state == "ready"), None)
+                if info is not None:
+                    info.state = "running"
+                elif len(self._burst) < self._max_burst:
+                    info = ConnInfo(None, "burst", self._max_timeout)
+                    info.state = "running"
+                    self._burst.append(info)
+                else:
+                    await self._cond.wait()
+                    continue
 
-        is_burst = False
-        try:
-            pooled = self._pool.get_nowait()
-        except asyncio.QueueEmpty:
-            async with self._burst_lock:
-                if self._burst_count < self._max_burst:
-                    self._burst_count += 1
-                    is_burst = True
-            pooled = await self._create_connection(is_burst=True)
+            # occupy-then-create: state already running, safe to await here
+            if info.conn is None or info.conn.closed or info.is_expired():
+                try:
+                    await self._replace_conn(info)
+                except Exception:
+                    await self._abort_acquire(info)
+                    raise
+            return info.conn
 
-        if not pooled.is_burst and pooled.is_expired(self._max_timeout):
-            pooled = await self._recycle(pooled)
+    async def _replace_conn(self, info: ConnInfo):
+        old = info.conn
+        info.conn = await self._connect()
+        info.refresh_expire(self._max_timeout)
+        if old is not None:
+            try:
+                old.close()
+            except Exception:
+                pass
 
-        try:
-            await pooled.raw.ping()
-        except Exception:
-            pooled = await self._recycle(pooled)
-
-        async with self._lock:
-            self._conn_map[pooled.raw] = pooled
-        return pooled.raw
+    async def _abort_acquire(self, info: ConnInfo):
+        """Undo a failed acquire so the slot is not leaked."""
+        async with self._cond:
+            if info.conn_type == "burst":
+                if info in self._burst:
+                    self._burst.remove(info)
+            else:
+                info.state = "ready"
+            self._cond.notify()
 
     async def release_conn(self, conn):
-        async with self._lock:
-            pooled = self._conn_map.pop(conn, None)
-
-        if pooled is None:
+        info = self._find(conn)
+        if info is None:
             try:
                 conn.close()
             except Exception:
                 pass
             return
 
-        if pooled.is_burst:
+        # rollback while still running: nobody else can hold this conn
+        await self._safe_rollback(conn)
+
+        async with self._cond:
+            if info.conn_type == "burst":
+                self._burst.remove(info)
+            else:
+                info.state = "ready"
+            self._cond.notify()
+
+        if info.conn_type == "burst":
             try:
-                await conn.rollback()
+                conn.close()
             except Exception:
                 pass
-            await pooled.close()
-            async with self._burst_lock:
-                self._burst_count = max(0, self._burst_count - 1)
-            return
 
+    @staticmethod
+    async def _safe_rollback(conn):
+        """Rollback only when a transaction is still active (skip the extra RTT after commit)."""
         try:
-            await conn.rollback()
+            if not conn.closed and conn.get_transaction_status():
+                await conn.rollback()
         except Exception:
             pass
 
-        try:
-            self._pool.put_nowait(pooled)
-        except asyncio.QueueFull:
-            await pooled.close()
-
     async def close(self):
-        if self._pool:
-            while not self._pool.empty():
-                pooled = self._pool.get_nowait()
-                await pooled.close()
-        for pooled in self._conn_map.values():
-            await pooled.close()
-        self._conn_map.clear()
+        for info in self._core + self._burst:
+            if info.conn is not None:
+                try:
+                    info.conn.close()
+                except Exception:
+                    pass
+                info.conn = None
