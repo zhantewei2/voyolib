@@ -56,15 +56,15 @@ def get_common_tool_doc(tool_name: str = "", query: str = "", limit: int = 3) ->
 
 @mcp.tool()
 def get_db_tool_doc(db_type: str, query: str = "", limit: int = 3) -> str:
-    """获取数据库工具文档（mysql / oracle / sqlite）。
+    """获取数据库工具文档（mysql / oracle / sqlite / pg）。
 
     Args:
-        db_type: 数据库类型，可选 mysql、oracle、sqlite。
+        db_type: 数据库类型，可选 mysql、oracle、sqlite、pg。
         query: 额外查询关键词，如 "连接池"、"@Transaction"。
         limit: 返回文档数量上限。
     """
     try:
-        if db_type not in {"mysql", "oracle", "sqlite"}:
+        if db_type not in {"mysql", "oracle", "sqlite", "pg"}:
             return _err(f"不支持的数据库类型: {db_type}")
         return _ok(_fetch_docs(type_="python", lang=db_type, query=query, limit=limit))
     except Exception as e:

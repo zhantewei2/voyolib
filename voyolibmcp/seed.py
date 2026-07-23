@@ -26,6 +26,12 @@ SEEDS: list[dict[str, str]] = [
         "doc_name": "sqlite",
     },
     {
+        "type": "python",
+        "lang": "pg",
+        "question": "postgresql postgres pg 连接池 写sql 事务 @transaction",
+        "doc_name": "pg",
+    },
+    {
         "type": "tool",
         "lang": "common",
         "question": "unique_id 唯一 ID 分布式 ID",

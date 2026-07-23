@@ -23,6 +23,7 @@ def main() -> int:
         ("db mysql", lambda: get_db_tool_doc(db_type="mysql", query="连接池")),
         ("db oracle", lambda: get_db_tool_doc(db_type="oracle", query="事务")),
         ("db sqlite", lambda: get_db_tool_doc(db_type="sqlite", query="@Transaction")),
+        ("db pg", lambda: get_db_tool_doc(db_type="pg", query="postgresql 事务")),
     ]
 
     for name, call in cases:
