@@ -1,4 +1,4 @@
-"""导入 mysql / oracle / sqlite / unique_id / logger / methods 文档索引。"""
+"""导入 mysql / oracle / sqlite / unique_id / logger / methods / ai工具 文档索引。"""
 
 from __future__ import annotations
 
@@ -48,6 +48,24 @@ SEEDS: list[dict[str, str]] = [
         "lang": "common",
         "question": "FastAPI fastApi接口响应 返回格式 json gzip",
         "doc_name": "methods",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
+        "question": "openai ModelClient LLM 大模型 对话 chat 流式 重试 dashscope qwen",
+        "doc_name": "openai",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
+        "question": "embedding EmbeddingClient 向量 嵌入 embed text-embedding",
+        "doc_name": "embedding",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
+        "question": "chunk chunk_split_paragraph 文本分块 切分 token 段落",
+        "doc_name": "chunk",
     },
 ]
 

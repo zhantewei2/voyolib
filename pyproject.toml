@@ -12,6 +12,8 @@ dependencies = [
     "mcp>=1.0.0",
     "oracledb>=4.0.1",
     "po-docs-db>=0.1.0",
+    "openai>=2.48.0",
+    "tiktoken>=0.13.0",
 ]
 
 [project.scripts]
@@ -23,3 +25,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["voyo", "voyolibmcp"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]

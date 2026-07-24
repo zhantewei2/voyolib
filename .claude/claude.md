@@ -7,3 +7,11 @@
 ## node.js
 
 不需要编译ts， 新版的node.js 支持ts, 可直接运行。
+
+## 测试
+
+禁止mock!
+
+## 构建项目文档
+
+查看 `voyolibmcp/guide.md`
