@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 
-from voyolibmcp.server import get_common_tool_doc, get_db_tool_doc
+from voyolibmcp.server import get_common_tool_doc, get_db_tool_doc, get_ai_tool_doc
 
 
 def _load(result: str) -> dict:
@@ -20,6 +20,9 @@ def main() -> int:
         ("common unique_id", lambda: get_common_tool_doc(tool_name="unique_id")),
         ("common logger", lambda: get_common_tool_doc(tool_name="logger")),
         ("common methods", lambda: get_common_tool_doc(query="FastAPI 响应")),
+        ("ai openai", lambda: get_ai_tool_doc(tool_name="openai")),
+        ("ai embedding", lambda: get_ai_tool_doc(tool_name="embedding")),
+        ("ai chunk", lambda: get_ai_tool_doc(tool_name="chunk")),
         ("db mysql", lambda: get_db_tool_doc(db_type="mysql", query="连接池")),
         ("db oracle", lambda: get_db_tool_doc(db_type="oracle", query="事务")),
         ("db sqlite", lambda: get_db_tool_doc(db_type="sqlite", query="@Transaction")),
