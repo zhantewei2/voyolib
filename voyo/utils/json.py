@@ -55,5 +55,6 @@ class YoGzipJsonResponses(Response):
             headers={
                 "Content-type": "application/json; charset=utf-8",
                 "Content-Encoding": "gzip"
-            }
+            },
+            **kwargs,
         )

@@ -1,8 +1,9 @@
 {
   "env": {
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "240000",
-    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "256000",
-    "ANTHROPIC_MODEL": "kimi-for-coding",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "550000",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "550000",
+    "ANTHROPIC_MODEL": "k3",
+    "ANTHROPIC_CODE_EFFORT_LEVEL": "high",
     "ANTHROPIC_BASE_URL": "https://api.kimi.com/coding/",
     "ANTHROPIC_AUTH_TOKEN": "sk-kimi-JqJ9slSK2h0lbdabttn7GUibXInSBdAsnCtsYbu7B839aTBd7LHK5lLdbSiet5iY"
   },

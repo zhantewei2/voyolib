@@ -1,4 +1,4 @@
-"""导入 mysql / oracle / sqlite / unique_id / logger 文档索引。"""
+"""导入 mysql / oracle / sqlite / unique_id / logger / methods / ai工具 文档索引。"""
 
 from __future__ import annotations
 
@@ -26,6 +26,12 @@ SEEDS: list[dict[str, str]] = [
         "doc_name": "sqlite",
     },
     {
+        "type": "python",
+        "lang": "pg",
+        "question": "postgresql postgres pg 连接池 写sql 事务 @transaction",
+        "doc_name": "pg",
+    },
+    {
         "type": "tool",
         "lang": "common",
         "question": "unique_id 唯一 ID 分布式 ID",
@@ -36,6 +42,30 @@ SEEDS: list[dict[str, str]] = [
         "lang": "common",
         "question": "logger 日志 init_logger 全局日志",
         "doc_name": "logger",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
+        "question": "FastAPI fastApi接口响应 返回格式 json gzip",
+        "doc_name": "methods",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
+        "question": "openai ModelClient LLM 大模型 对话 chat 流式 重试 dashscope qwen",
+        "doc_name": "openai",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
+        "question": "embedding EmbeddingClient 向量 嵌入 embed text-embedding",
+        "doc_name": "embedding",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
+        "question": "chunk chunk_split_paragraph 文本分块 切分 token 段落",
+        "doc_name": "chunk",
     },
 ]
 
