@@ -4,7 +4,7 @@
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "256000",
     "ANTHROPIC_MODEL": "kimi-for-coding",
     "ANTHROPIC_BASE_URL": "https://api.kimi.com/coding/",
-    "ANTHROPIC_AUTH_TOKEN": "sk-kimi-bfvnjIRZBla1TGUNrFEaUJjIAJ5vcg70dPeeMjUg4hNbYJKfNml0ymIcviA98eb0"
+    "ANTHROPIC_AUTH_TOKEN": "sk-kimi-JqJ9slSK2h0lbdabttn7GUibXInSBdAsnCtsYbu7B839aTBd7LHK5lLdbSiet5iY"
   },
     "permissions": {
     "allow": [
