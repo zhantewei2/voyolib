@@ -1,12 +1,13 @@
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any,Dict,Union
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse,Response
 import gzip
 
 class CustomEncoder(json.JSONEncoder):
+    
     def encode(self,obj):
         obj=self.convert(obj)
         return super().encode(obj)
@@ -18,6 +19,8 @@ class CustomEncoder(json.JSONEncoder):
             return obj
         elif isinstance(obj,datetime):
             return obj.strftime("%Y/%m/%d %H:%M:%S")
+        elif isinstance(obj,date):
+            return obj.strftime("%Y/%m/%d")
         elif isinstance(obj,BaseModel):
             return self.convert(obj.model_dump())
         elif isinstance(obj,dict):
