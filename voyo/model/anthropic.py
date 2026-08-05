@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from voyo.model.base import ModelUsage, build_body
+from voyo.model.rate_limit import RateLimiter
 from voyo.model.types import ExtraBodyInput
 from voyo.utils.exception import YoModelException
 
@@ -16,9 +17,19 @@ _OK_STATUS = (200, 201, 202)
 
 
 class AnthropicClient:
-    """httpx 直连 Anthropic Messages API；传入 ModelUsage 实例时才统计 token 用量。"""
+    """httpx 直连 Anthropic Messages API；传入 ModelUsage 实例时才统计 token 用量。
+    max_workers 与 rpm 默认 0 表示不限制；>0 时由内部 RateLimiter 控制并发与请求节奏。
+    """
 
-    def __init__(self, base_url: str, api_key: str, headers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        headers: dict[str, str] | None = None,
+        *,
+        max_workers: int = 0,
+        rpm: int = 0,
+    ) -> None:
         base = base_url.rstrip("/")
         self._url = f"{base}/messages" if base.endswith("/v1") else f"{base}/v1/messages"
         self._headers = {
@@ -30,6 +41,7 @@ class AnthropicClient:
         }
         self._sync_client = httpx.Client()
         self._async_client = httpx.AsyncClient()
+        self._limiter = RateLimiter(rpm=rpm, max_workers=max_workers)
 
     def chat(
         self,
@@ -45,25 +57,29 @@ class AnthropicClient:
         stream: bool = False,
         usage: ModelUsage | None = None,
     ) -> dict[str, Any] | Iterator[str]:
-        """同步调用；stream=True 返回 SSE 行迭代器，否则返回原始响应 dict。"""
-        body = build_body(
+        """同步调用；stream=True 返回 SSE 行迭代器，否则返回原始响应 dict。
+        非流式：每次重试都重新进入 _limiter.acquire_sync（重新抢 sem + 重新节奏控制）。"""
+        call_kwargs = dict(
             model=model, messages=messages, system=system, thinking_enabled=thinking_enabled,
-            temperature=temperature, max_tokens=max_tokens, extra_body=extra_body, stream=stream,
+            extra_body=extra_body, temperature=temperature, max_tokens=max_tokens,
+            stream=stream, usage=usage,
         )
         if stream:
-            return self._stream_sync(body, usage)
-        last_err: Exception | None = None
-        for _ in range(retry_max):
+            # 流式不能重试（响应已开始流式输出）
+            with self._limiter.acquire_sync():
+                return self._chat(**call_kwargs)
+        for _req_count in range(retry_max):
             try:
-                resp = self._sync_client.post(self._url, json=body, headers=self._headers, timeout=300.0)
-                if resp.status_code not in _OK_STATUS:
-                    raise YoModelException(resp.status_code, resp.text)
-                raw = resp.json()
-                self._collect_usage(usage, raw.get("usage"))
-                return raw
-            except Exception as err:
-                last_err = err
-        raise last_err  # type: ignore[misc]
+                with self._limiter.acquire_sync():
+                    return self._chat(**call_kwargs)
+            except YoModelException as err:
+                logger.error(
+                    "anthropic request failed: status=%s body=%s", err.status_code, err.msg,
+                )
+                self._limiter.is_rate_limited_text(err.status_code, err.msg)
+                if _req_count == retry_max - 1:
+                    raise err
+                continue
 
     async def achat(
         self,
@@ -79,25 +95,82 @@ class AnthropicClient:
         stream: bool = False,
         usage: ModelUsage | None = None,
     ) -> dict[str, Any] | AsyncIterator[str]:
-        """异步调用；stream=True 返回 SSE 行异步迭代器，否则返回原始响应 dict。"""
+        """异步调用；stream=True 返回 SSE 行异步迭代器，否则返回原始响应 dict。
+        非流式：每次重试都重新进入 _limiter.acquire（重新抢 asem + 重新节奏控制）。"""
+        call_kwargs = dict(
+            model=model, messages=messages, system=system, thinking_enabled=thinking_enabled,
+            extra_body=extra_body, temperature=temperature, max_tokens=max_tokens,
+            stream=stream, usage=usage,
+        )
+        if stream:
+            async with self._limiter.acquire():
+                return await self._achat(**call_kwargs)
+        for _req_count in range(retry_max):
+            try:
+                async with self._limiter.acquire():
+                    return await self._achat(**call_kwargs)
+            except YoModelException as err:
+                logger.error(
+                    "anthropic request failed: status=%s body=%s", err.status_code, err.msg,
+                )
+                self._limiter.is_rate_limited_text(err.status_code, err.msg)
+                if _req_count == retry_max - 1:
+                    raise err
+                continue
+
+    def _chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        system: str | None = None,
+        thinking_enabled: bool = False,
+        extra_body: ExtraBodyInput | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        stream: bool = False,
+        usage: ModelUsage | None = None,
+    ) -> dict[str, Any] | Iterator[str]:
+        """单次实际同步请求（不含并发/限速/重试）。"""
+        body = build_body(
+            model=model, messages=messages, system=system, thinking_enabled=thinking_enabled,
+            temperature=temperature, max_tokens=max_tokens, extra_body=extra_body, stream=stream,
+        )
+        if stream:
+            return self._stream_sync(body, usage)
+        resp = self._sync_client.post(self._url, json=body, headers=self._headers, timeout=300.0)
+        if resp.status_code not in _OK_STATUS:
+            raise YoModelException(resp.status_code, resp.text)
+        raw = resp.json()
+        self._collect_usage(usage, raw.get("usage"))
+        return raw
+
+    async def _achat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        system: str | None = None,
+        thinking_enabled: bool = False,
+        extra_body: ExtraBodyInput | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        stream: bool = False,
+        usage: ModelUsage | None = None,
+    ) -> dict[str, Any] | AsyncIterator[str]:
+        """单次实际异步请求（不含并发/限速/重试）。"""
         body = build_body(
             model=model, messages=messages, system=system, thinking_enabled=thinking_enabled,
             temperature=temperature, max_tokens=max_tokens, extra_body=extra_body, stream=stream,
         )
         if stream:
             return self._stream_async(body, usage)
-        last_err: Exception | None = None
-        for _ in range(retry_max):
-            try:
-                resp = await self._async_client.post(self._url, json=body, headers=self._headers, timeout=300.0)
-                if resp.status_code not in _OK_STATUS:
-                    raise YoModelException(resp.status_code, resp.text)
-                raw = resp.json()
-                self._collect_usage(usage, raw.get("usage"))
-                return raw
-            except Exception as err:
-                last_err = err
-        raise last_err  # type: ignore[misc]
+        resp = await self._async_client.post(self._url, json=body, headers=self._headers, timeout=300.0)
+        if resp.status_code not in _OK_STATUS:
+            raise YoModelException(resp.status_code, resp.text)
+        raw = resp.json()
+        self._collect_usage(usage, raw.get("usage"))
+        return raw
 
     def _stream_sync(self, body: dict[str, Any], usage: ModelUsage | None) -> Iterator[str]:
         stream_usage: dict[str, int] = {}

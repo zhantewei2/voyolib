@@ -1,21 +1,21 @@
-"""Integration tests for voyo.model.openai.ModelClient (httpx 直连重构版) — no mocks."""
+"""Integration tests for voyo.model.openai.OpenAiClient (httpx 直连重构版) — no mocks."""
 
 from __future__ import annotations
 
 import pytest
 
 from voyo.model.base import ModelUsage, build_body
-from voyo.model.openai import ModelClient
+from voyo.model.openai import OpenAiClient
 
 BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 API_KEY = "sk-372b5ed8a6614dd5a3b5ec528f882d26"
-MODEL = "qwen-max"
-THINKING_MODEL = "qwen3-max"
+MODEL = "qwen-plus"
+THINKING_MODEL = "qwen3-plus"
 
 
 @pytest.fixture
 def client():
-    return ModelClient(base_url=BASE_URL, api_key=API_KEY)
+    return OpenAiClient(base_url=BASE_URL, api_key=API_KEY)
 
 
 def _content(raw: dict) -> str:
@@ -30,7 +30,7 @@ class TestChat:
         assert isinstance(content, str) and len(content) > 0
 
     def test_base_url_trailing_slash(self):
-        client = ModelClient(base_url=BASE_URL + "/", api_key=API_KEY)
+        client = OpenAiClient(base_url=BASE_URL + "/", api_key=API_KEY)
         raw = client.chat(model=MODEL, messages=[{"role": "user", "content": "hi"}], max_tokens=16)
         print(f"\n[trailing_slash] {_content(raw)!r}")
         assert _content(raw)
@@ -106,20 +106,20 @@ class TestChat:
         assert usage.input_tokens > 0 and usage.output_tokens > 0
 
     def test_error_bad_api_key(self):
-        client = ModelClient(base_url=BASE_URL, api_key="sk-wrong")
+        client = OpenAiClient(base_url=BASE_URL, api_key="sk-wrong")
         with pytest.raises(Exception) as exc_info:
             client.chat(model=MODEL, messages=[{"role": "user", "content": "hi"}], retry_max=2)
         print(f"\n[bad_key] {exc_info.type.__name__}: {str(exc_info.value)[:120]}")
 
     def test_headers_merge_extra_header(self):
-        client = ModelClient(base_url=BASE_URL, api_key=API_KEY, headers={"X-Custom-Header": "voyo-test"})
+        client = OpenAiClient(base_url=BASE_URL, api_key=API_KEY, headers={"X-Custom-Header": "voyo-test"})
         raw = client.chat(model=MODEL, messages=[{"role": "user", "content": "hi"}], max_tokens=16)
         print(f"\n[headers_merge] {_content(raw)!r}")
         assert _content(raw)
 
     def test_headers_merge_override_auth(self):
         # 自定义 header 覆盖默认 Authorization 后请求应 401
-        client = ModelClient(base_url=BASE_URL, api_key=API_KEY, headers={"Authorization": "Bearer sk-wrong"})
+        client = OpenAiClient(base_url=BASE_URL, api_key=API_KEY, headers={"Authorization": "Bearer sk-wrong"})
         with pytest.raises(Exception) as exc_info:
             client.chat(model=MODEL, messages=[{"role": "user", "content": "hi"}])
         print(f"\n[headers_override] {exc_info.type.__name__}: {str(exc_info.value)[:120]}")

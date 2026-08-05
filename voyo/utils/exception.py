@@ -23,4 +23,8 @@ class YoHttpException(VoyoException):
 
 
 class YoModelException(VoyoException):
-    """模型请求错误：code 为上游 HTTP 状态码，msg 为上游响应体。"""
+    """模型请求错误；status_code 为上游 HTTP 状态码，msg 为上游响应体。"""
+
+    @property
+    def status_code(self) -> int:
+        return self.code

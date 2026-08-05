@@ -10,7 +10,7 @@ class ExceptionType(IntEnum):
     NOT_FOUND = 404
     SERVER_ERROR = 500
     UPSTREAM_ERROR = 502
-
+    
     @property
     def msg(self) -> str:
         return _MSGS[self]
