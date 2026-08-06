@@ -52,7 +52,7 @@ SEEDS: list[dict[str, str]] = [
     {
         "type": "tool",
         "lang": "common",
-        "question": "openai ModelClient LLM 大模型 对话 chat 流式 重试 dashscope qwen",
+        "question": "openai OpenAiClient LLM 大模型 对话 chat 流式 重试 dashscope qwen",
         "doc_name": "openai",
     },
     {

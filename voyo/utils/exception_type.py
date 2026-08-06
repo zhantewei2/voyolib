@@ -10,6 +10,7 @@ class ExceptionType(IntEnum):
     NOT_FOUND = 404
     SERVER_ERROR = 500
     UPSTREAM_ERROR = 502
+    TIMEOUT = 504
 
     @property
     def msg(self) -> str:
@@ -23,4 +24,5 @@ _MSGS = {
     ExceptionType.NOT_FOUND: "资源不存在",
     ExceptionType.SERVER_ERROR: "服务器内部错误",
     ExceptionType.UPSTREAM_ERROR: "上游服务错误",
+    ExceptionType.TIMEOUT: "请求超时",
 }

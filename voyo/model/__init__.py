@@ -1,7 +1,7 @@
 from voyo.model.anthropic import AnthropicClient
 from voyo.model.base import ModelUsage, build_body
 from voyo.model.embedding import EmbeddingClient
-from voyo.model.openai import ModelClient
+from voyo.model.openai import OpenAiClient
 from voyo.model.types import ExtraBody, ExtraBodyInput, ResponseFormat
 
 __all__ = [
@@ -9,8 +9,8 @@ __all__ = [
     "EmbeddingClient",
     "ExtraBody",
     "ExtraBodyInput",
-    "ModelClient",
     "ModelUsage",
+    "OpenAiClient",
     "ResponseFormat",
     "build_body",
 ]
