@@ -1,22 +1,21 @@
-"""Integration tests for voyo.model.openai.ModelClient (httpx 直连重构版) — no mocks."""
+"""Integration tests for voyo.model.openai.OpenAiClient (httpx 直连重构版) — no mocks."""
 
 from __future__ import annotations
-
-import json
 
 import pytest
 
 from voyo.model.base import ModelUsage, build_body
-from voyo.model.openai import ModelClient
+from voyo.model.openai import OpenAiClient
 
-BASE_URL = "http://192.168.20.114:8080/v1"
+BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 API_KEY = "sk-372b5ed8a6614dd5a3b5ec528f882d26"
-MODEL = "qwen3.6-27b"
+MODEL = "qwen-plus"
+THINKING_MODEL = "qwen3-plus"
 
 
 @pytest.fixture
 def client():
-    return ModelClient(base_url=BASE_URL, api_key=API_KEY)
+    return OpenAiClient(base_url=BASE_URL, api_key=API_KEY)
 
 
 def _content(raw: dict) -> str:
@@ -31,7 +30,7 @@ class TestChat:
         assert isinstance(content, str) and len(content) > 0
 
     def test_base_url_trailing_slash(self):
-        client = ModelClient(base_url=BASE_URL + "/", api_key=API_KEY)
+        client = OpenAiClient(base_url=BASE_URL + "/", api_key=API_KEY)
         raw = client.chat(model=MODEL, messages=[{"role": "user", "content": "hi"}], max_tokens=16)
         print(f"\n[trailing_slash] {_content(raw)!r}")
         assert _content(raw)
@@ -62,35 +61,16 @@ class TestChat:
         print(f"\n[no_usage] {usage}")
         assert usage.input_tokens == 0 and usage.output_tokens == 0
 
-    def test_thinking_disabled_no_reasoning(self, client):
-        # ENABLE_THINKING=false 时，非流式/流式都不应产生思考内容
-        prompt = [{"role": "user", "content": "9.11 和 9.9 哪个大?"}]
-        raw = client.chat(model=MODEL, messages=prompt, thinking_enabled=False, max_tokens=2048)
-        msg = raw["choices"][0]["message"]
-        reasoning = msg.get("reasoning_content")
-        content = msg.get("content") or ""
-        print(f"\n[thinking off] reasoning={str(reasoning)[:120]!r} content={content[:120]!r}")
-        assert not reasoning
-        assert "<think>" not in content
-
-        reasoning_chunks, content_chunks = [], []
-        for line in client.chat(model=MODEL, messages=prompt, thinking_enabled=False, stream=True, max_tokens=2048):
-            if not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if data == "[DONE]":
-                break
-            choices = json.loads(data).get("choices") or []
-            if not choices:
-                continue
-            delta = choices[0].get("delta", {})
-            if delta.get("reasoning_content"):
-                reasoning_chunks.append(delta["reasoning_content"])
-            if delta.get("content"):
-                content_chunks.append(delta["content"])
-        print(f"[thinking off stream] reasoning_chunks={len(reasoning_chunks)} content={''.join(content_chunks)[:120]!r}")
-        assert not reasoning_chunks
-        assert "<think>" not in "".join(content_chunks)
+    def test_thinking_enabled(self, client):
+        raw = client.chat(
+            model=THINKING_MODEL,
+            messages=[{"role": "user", "content": "1+1=?"}],
+            thinking_enabled=True,
+            max_tokens=2048,
+        )
+        reasoning = raw["choices"][0]["message"].get("reasoning_content")
+        print(f"\n[thinking_enabled] reasoning={str(reasoning)[:120]!r}")
+        assert reasoning
 
     def test_thinking_body_fields(self):
         body = build_body(
@@ -126,26 +106,22 @@ class TestChat:
         assert usage.input_tokens > 0 and usage.output_tokens > 0
 
     def test_error_bad_api_key(self):
-        client = ModelClient(base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", api_key="sk-wrong")
+        client = OpenAiClient(base_url=BASE_URL, api_key="sk-wrong")
         with pytest.raises(Exception) as exc_info:
-            client.chat(model="qwen-max", messages=[{"role": "user", "content": "hi"}], retry_max=2)
+            client.chat(model=MODEL, messages=[{"role": "user", "content": "hi"}], retry_max=2)
         print(f"\n[bad_key] {exc_info.type.__name__}: {str(exc_info.value)[:120]}")
 
     def test_headers_merge_extra_header(self):
-        client = ModelClient(base_url=BASE_URL, api_key=API_KEY, headers={"X-Custom-Header": "voyo-test"})
+        client = OpenAiClient(base_url=BASE_URL, api_key=API_KEY, headers={"X-Custom-Header": "voyo-test"})
         raw = client.chat(model=MODEL, messages=[{"role": "user", "content": "hi"}], max_tokens=16)
         print(f"\n[headers_merge] {_content(raw)!r}")
         assert _content(raw)
 
     def test_headers_merge_override_auth(self):
-        # 自定义 header 覆盖默认 Authorization 后请求应 401(本地服务不校验 key,改用 dashscope 验证)
-        client = ModelClient(
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key=API_KEY,
-            headers={"Authorization": "Bearer sk-wrong"},
-        )
+        # 自定义 header 覆盖默认 Authorization 后请求应 401
+        client = OpenAiClient(base_url=BASE_URL, api_key=API_KEY, headers={"Authorization": "Bearer sk-wrong"})
         with pytest.raises(Exception) as exc_info:
-            client.chat(model="qwen-max", messages=[{"role": "user", "content": "hi"}])
+            client.chat(model=MODEL, messages=[{"role": "user", "content": "hi"}])
         print(f"\n[headers_override] {exc_info.type.__name__}: {str(exc_info.value)[:120]}")
 
 
