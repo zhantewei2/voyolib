@@ -43,6 +43,7 @@ class AnthropicClient:
         max_tokens: int = 4096,
         retry_max: int = 1,
         stream: bool = False,
+        timeout: float = 300.0,
         usage: ModelUsage | None = None,
     ) -> dict[str, Any] | Iterator[str]:
         """同步调用；stream=True 返回 SSE 行迭代器，否则返回原始响应 dict。"""
@@ -51,11 +52,11 @@ class AnthropicClient:
             temperature=temperature, max_tokens=max_tokens, extra_body=extra_body, stream=stream,
         )
         if stream:
-            return self._stream_sync(body, usage)
+            return self._stream_sync(body, usage, timeout, retry_max)
         last_err: Exception | None = None
         for _ in range(retry_max):
             try:
-                resp = self._sync_client.post(self._url, json=body, headers=self._headers, timeout=300.0)
+                resp = self._sync_client.post(self._url, json=body, headers=self._headers, timeout=timeout)
                 if resp.status_code not in _OK_STATUS:
                     raise YoModelException(resp.status_code, resp.text)
                 raw = resp.json()
@@ -77,6 +78,7 @@ class AnthropicClient:
         max_tokens: int = 4096,
         retry_max: int = 1,
         stream: bool = False,
+        timeout: float = 300.0,
         usage: ModelUsage | None = None,
     ) -> dict[str, Any] | AsyncIterator[str]:
         """异步调用；stream=True 返回 SSE 行异步迭代器，否则返回原始响应 dict。"""
@@ -85,11 +87,11 @@ class AnthropicClient:
             temperature=temperature, max_tokens=max_tokens, extra_body=extra_body, stream=stream,
         )
         if stream:
-            return self._stream_async(body, usage)
+            return self._stream_async(body, usage, timeout, retry_max)
         last_err: Exception | None = None
         for _ in range(retry_max):
             try:
-                resp = await self._async_client.post(self._url, json=body, headers=self._headers, timeout=300.0)
+                resp = await self._async_client.post(self._url, json=body, headers=self._headers, timeout=timeout)
                 if resp.status_code not in _OK_STATUS:
                     raise YoModelException(resp.status_code, resp.text)
                 raw = resp.json()
@@ -99,35 +101,59 @@ class AnthropicClient:
                 last_err = err
         raise last_err  # type: ignore[misc]
 
-    def _stream_sync(self, body: dict[str, Any], usage: ModelUsage | None) -> Iterator[str]:
-        stream_usage: dict[str, int] = {}
-        with self._sync_client.stream("POST", self._url, json=body, headers=self._headers, timeout=120.0) as resp:
-            if resp.status_code not in _OK_STATUS:
-                resp.read()
-                raise YoModelException(resp.status_code, resp.text)
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                event = self._parse_event(line)
-                if event:
-                    self._update_stream_usage(stream_usage, event)
-                yield f"{line}\n"
-        self._collect_usage(usage, stream_usage)
+    def _stream_sync(self, body: dict[str, Any], usage: ModelUsage | None, timeout: float = 120.0, retry_max: int = 1) -> Iterator[str]:
+        # 仅连接/首行前允许重试，已开始产出则直接抛错避免重复内容
+        last_err: Exception | None = None
+        for _ in range(retry_max):
+            started = False
+            try:
+                stream_usage: dict[str, int] = {}
+                with self._sync_client.stream("POST", self._url, json=body, headers=self._headers, timeout=timeout) as resp:
+                    if resp.status_code not in _OK_STATUS:
+                        resp.read()
+                        raise YoModelException(resp.status_code, resp.text)
+                    for line in resp.iter_lines():
+                        if not line:
+                            continue
+                        started = True
+                        event = self._parse_event(line)
+                        if event:
+                            self._update_stream_usage(stream_usage, event)
+                        yield f"{line}\n"
+                self._collect_usage(usage, stream_usage)
+                return
+            except Exception as err:
+                last_err = err
+                if started:
+                    raise
+        raise last_err  # type: ignore[misc]
 
-    async def _stream_async(self, body: dict[str, Any], usage: ModelUsage | None) -> AsyncIterator[str]:
-        stream_usage: dict[str, int] = {}
-        async with self._async_client.stream("POST", self._url, json=body, headers=self._headers, timeout=120.0) as resp:
-            if resp.status_code not in _OK_STATUS:
-                await resp.aread()
-                raise YoModelException(resp.status_code, resp.text)
-            async for line in resp.aiter_lines():
-                if not line:
-                    continue
-                event = self._parse_event(line)
-                if event:
-                    self._update_stream_usage(stream_usage, event)
-                yield f"{line}\n"
-        self._collect_usage(usage, stream_usage)
+    async def _stream_async(self, body: dict[str, Any], usage: ModelUsage | None, timeout: float = 120.0, retry_max: int = 1) -> AsyncIterator[str]:
+        # 仅连接/首行前允许重试，已开始产出则直接抛错避免重复内容
+        last_err: Exception | None = None
+        for _ in range(retry_max):
+            started = False
+            try:
+                stream_usage: dict[str, int] = {}
+                async with self._async_client.stream("POST", self._url, json=body, headers=self._headers, timeout=timeout) as resp:
+                    if resp.status_code not in _OK_STATUS:
+                        await resp.aread()
+                        raise YoModelException(resp.status_code, resp.text)
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        started = True
+                        event = self._parse_event(line)
+                        if event:
+                            self._update_stream_usage(stream_usage, event)
+                        yield f"{line}\n"
+                self._collect_usage(usage, stream_usage)
+                return
+            except Exception as err:
+                last_err = err
+                if started:
+                    raise
+        raise last_err  # type: ignore[misc]
 
     @staticmethod
     def _collect_usage(usage: ModelUsage | None, raw_usage: dict[str, Any] | None) -> None:
