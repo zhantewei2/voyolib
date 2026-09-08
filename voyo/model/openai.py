@@ -74,10 +74,12 @@ class OpenAiClient:
                 logger.error(
                     "openai request failed: status=%s body=%s", err.status_code, err.msg,
                 )
-                self._limiter.is_rate_limited_text(err.status_code, err.msg)
+                rate_limited = self._limiter.is_rate_limited_text(err.status_code, err.msg)
                 if _req_count == retry_max - 1:
                     raise err
-                continue
+                if rate_limited:
+                    # 429 退避只作用于当前线程，不阻塞其他并发请求
+                    self._limiter.penalty_sleep_sync()
 
     async def achat(
         self,
@@ -112,10 +114,12 @@ class OpenAiClient:
                 logger.error(
                     "openai request failed: status=%s body=%s", err.status_code, err.msg,
                 )
-                self._limiter.is_rate_limited_text(err.status_code, err.msg)
+                rate_limited = self._limiter.is_rate_limited_text(err.status_code, err.msg)
                 if _req_count == retry_max - 1:
                     raise err
-                continue
+                if rate_limited:
+                    # 429 退避只作用于当前协程，不阻塞其他并发请求
+                    await self._limiter.penalty_sleep()
 
     def _chat(
         self,

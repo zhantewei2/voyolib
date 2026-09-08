@@ -11,18 +11,22 @@ import httpx
 
 class RateLimiter:
     """Smooth-pace outgoing requests at the given RPM and bound concurrency,
-    with auto-degradation: a rate-limited response triggers a 30s hard block,
-    drops rpm by 5 (floor 1), and schedules a 5-min recovery timer that bumps
-    rpm back by 5 (ceiling = initial). Repeated rate limits within the wait
-    window cancel and reschedule the timer, pushing recovery further out.
+    with auto-degradation: a rate-limited response drops rpm by 5 (floor 1) and
+    schedules a 5-min recovery timer that bumps rpm back by 5 (ceiling = initial).
+    Repeated rate limits within the wait window cancel and reschedule the timer,
+    pushing recovery further out.
+
+    The 429 penalty sleep is NOT global: the caller that hit the limit sleeps
+    degrade_sleep seconds in its own coroutine/thread via penalty_sleep*();
+    other coroutines are only affected through the lowered rpm pacing.
     """
-    
+
     def __init__(
         self,
         *,
         rpm: int = 0,
         max_workers: int = 0,
-        degrade_sleep: float = 30.0,
+        degrade_sleep: float = 10.0,
         degrade_step: int = 5,
         recover_wait: float = 300.0,
         min_rpm: int = 1,
@@ -45,7 +49,6 @@ class RateLimiter:
         self._recover_wait = recover_wait
         self._min_rpm = min_rpm
         # Degradation state
-        self._blocked_until = 0.0
         self._recover_timer: threading.Timer | None = None
         # Single state lock covers pace + degradation mutations
         self._state_lock = threading.Lock()
@@ -96,14 +99,21 @@ class RateLimiter:
         return False
 
     def _degrade(self) -> None:
-        """Apply degradation: hard block next request + lower rpm + (re)schedule recovery."""
+        """Apply degradation: lower rpm + (re)schedule recovery. No global block."""
         with self._state_lock:
-            self._blocked_until = time.monotonic() + self._degrade_sleep
             if self._initial_rpm > 0:
                 self._current_rpm = max(self._current_rpm - self._degrade_step, self._min_rpm)
                 self._min_interval = 60.0 / self._current_rpm
         if self._initial_rpm > 0:
             self._schedule_recovery()
+
+    def penalty_sleep_sync(self) -> None:
+        """Sleep the 429 penalty in the calling thread. Call after is_rate_limited*() hits."""
+        time.sleep(self._degrade_sleep)
+
+    async def penalty_sleep(self) -> None:
+        """Async version of penalty_sleep_sync: sleeps only the current coroutine."""
+        await asyncio.sleep(self._degrade_sleep)
 
     def _schedule_recovery(self) -> None:
         """Cancel any pending recovery timer and schedule a fresh one."""
@@ -124,17 +134,13 @@ class RateLimiter:
             self._min_interval = 60.0 / self._current_rpm
 
     async def _pace_rpm(self) -> None:
-        """Reserve a slot at max(last_req_at+min_interval, _blocked_until).
+        """Reserve a slot at last_req_at+min_interval.
         Lock held only for the reservation; sleep runs outside the lock."""
         with self._state_lock:
             now = time.monotonic()
-            if self._min_interval <= 0 and self._blocked_until <= now:
+            if self._min_interval <= 0:
                 return
-            next_allowed = max(
-                self._last_req_at + self._min_interval,
-                self._blocked_until,
-                now,
-            )
+            next_allowed = max(self._last_req_at + self._min_interval, now)
             self._last_req_at = next_allowed
             wait = next_allowed - now
         if wait > 0:
@@ -144,13 +150,9 @@ class RateLimiter:
         """Sync version, same logic as _pace_rpm."""
         with self._state_lock:
             now = time.monotonic()
-            if self._min_interval <= 0 and self._blocked_until <= now:
+            if self._min_interval <= 0:
                 return
-            next_allowed = max(
-                self._last_req_at + self._min_interval,
-                self._blocked_until,
-                now,
-            )
+            next_allowed = max(self._last_req_at + self._min_interval, now)
             self._last_req_at = next_allowed
             wait = next_allowed - now
         if wait > 0:

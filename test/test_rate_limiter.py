@@ -129,5 +129,48 @@ class TestMixedSyncAsync:
         assert elapsed >= 1.8
 
 
+class TestDegradation:
+    def test_default_degrade_sleep_10s(self):
+        assert RateLimiter()._degrade_sleep == 10.0
+
+    def test_429_drops_rpm_by_step(self):
+        rl = RateLimiter(rpm=30, recover_wait=999.0)
+        rl.is_rate_limited_text(429, "")
+        assert rl._current_rpm == 25
+        assert rl._min_interval == pytest.approx(60.0 / 25)
+
+    def test_429_sets_no_global_block(self):
+        # 429 后其他请求不应被阻塞，只受 rpm 节奏影响；rpm=0 时完全无等待
+        rl = RateLimiter(rpm=0)
+        rl.is_rate_limited_text(429, "")
+        t0 = time.monotonic()
+        with rl.acquire_sync():
+            pass
+        assert time.monotonic() - t0 < 0.1
+
+    def test_penalty_sleep_sync(self):
+        rl = RateLimiter(degrade_sleep=0.2)
+        t0 = time.monotonic()
+        rl.penalty_sleep_sync()
+        assert time.monotonic() - t0 >= 0.18
+
+    @pytest.mark.asyncio
+    async def test_penalty_sleep_only_blocks_current_coroutine(self):
+        # 协程 A 睡 penalty 期间，协程 B 的 acquire 应照常完成
+        rl = RateLimiter(degrade_sleep=0.5)
+        done = []
+
+        async def _a():
+            await rl.penalty_sleep()
+            done.append("a")
+
+        async def _b():
+            async with rl.acquire():
+                done.append("b")
+
+        await asyncio.gather(_a(), _b())
+        assert done[0] == "b"  # b 先完成，未被 a 的 penalty 拖住
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
