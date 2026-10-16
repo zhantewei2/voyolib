@@ -6,11 +6,11 @@ import json
 import traceback
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-from voyolibmcp.po_docs import po_docs_db, read_doc
+from voyolibmcp.po_docs import po_docs_worker, read_doc
 
-mcp = FastMCP("voyolibmcp")
+mcp = MCPServer("voyolibmcp")
 
 
 def _ok(data: Any) -> str:
@@ -21,10 +21,12 @@ def _err(msg: str) -> str:
     return json.dumps({"error": msg}, ensure_ascii=False, indent=2)
 
 
-def _fetch_docs(type_: str, lang: str, query: str, limit: int) -> dict[str, Any]:
+async def _fetch_docs(type_: str, lang: str, query: str, limit: int) -> dict[str, Any]:
     """查询 PoDocsDB 并读取匹配文档内容。"""
     search_query = f"{lang} {query}".strip()
-    result = po_docs_db.query(type=type_, lang=lang, query=search_query, limit=limit)
+    result = await po_docs_worker.run(
+        lambda db: db.query(type=type_, lang=lang, query=search_query, limit=limit)
+    )
     return {
         "results": [
             {
@@ -39,7 +41,7 @@ def _fetch_docs(type_: str, lang: str, query: str, limit: int) -> dict[str, Any]
 
 
 @mcp.tool()
-def get_common_tool_doc(tool_name: str = "", query: str = "", limit: int = 3) -> str:
+async def get_common_tool_doc(tool_name: str = "", query: str = "", limit: int = 3) -> str:
     """获取常规工具文档（unique_id / logger / methods）。
 
     Args:
@@ -49,13 +51,13 @@ def get_common_tool_doc(tool_name: str = "", query: str = "", limit: int = 3) ->
     """
     try:
         search = f"{tool_name} {query}".strip()
-        return _ok(_fetch_docs(type_="tool", lang="common", query=search, limit=limit))
+        return _ok(await _fetch_docs(type_="tool", lang="common", query=search, limit=limit))
     except Exception as e:
         return _err(f"{e}\n{traceback.format_exc()}")
 
 
 @mcp.tool()
-def get_ai_tool_doc(tool_name: str = "", query: str = "", limit: int = 3) -> str:
+async def get_ai_tool_doc(tool_name: str = "", query: str = "", limit: int = 3) -> str:
     """获取 AI 工具文档：大模型对话（openai）、文本向量嵌入（embedding）、文本分块（chunk）。
 
     Args:
@@ -65,13 +67,13 @@ def get_ai_tool_doc(tool_name: str = "", query: str = "", limit: int = 3) -> str
     """
     try:
         search = f"{tool_name} {query}".strip()
-        return _ok(_fetch_docs(type_="tool", lang="common", query=search, limit=limit))
+        return _ok(await _fetch_docs(type_="tool", lang="common", query=search, limit=limit))
     except Exception as e:
         return _err(f"{e}\n{traceback.format_exc()}")
 
 
 @mcp.tool()
-def get_db_tool_doc(db_type: str, query: str = "", limit: int = 3) -> str:
+async def get_db_tool_doc(db_type: str, query: str = "", limit: int = 3) -> str:
     """获取数据库工具文档（mysql / oracle / sqlite / pg）。
 
     Args:
@@ -82,7 +84,7 @@ def get_db_tool_doc(db_type: str, query: str = "", limit: int = 3) -> str:
     try:
         if db_type not in {"mysql", "oracle", "sqlite", "pg"}:
             return _err(f"不支持的数据库类型: {db_type}")
-        return _ok(_fetch_docs(type_="python", lang=db_type, query=query, limit=limit))
+        return _ok(await _fetch_docs(type_="python", lang=db_type, query=query, limit=limit))
     except Exception as e:
         return _err(f"{e}\n{traceback.format_exc()}")
 

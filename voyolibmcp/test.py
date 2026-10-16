@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 
@@ -31,7 +32,7 @@ def main() -> int:
 
     for name, call in cases:
         total += 1
-        data = _load(call())
+        data = _load(asyncio.run(call()))
         ok = "error" not in data and len(data.get("results", [])) > 0
         ok = ok and any(item.get("content") for item in data.get("results", []))
         if ok:

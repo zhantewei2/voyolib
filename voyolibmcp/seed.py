@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import sys
 
-from voyolibmcp.po_docs import DEFAULT_DOCS_DIR, po_docs_db
+from po_docs_db import PoDocsDB
+
+from voyolibmcp.po_docs import DEFAULT_DB_PATH, DEFAULT_DOCS_DIR
+
+# seed 在单线程主进程中运行，直接使用独立连接，不走 server 的单线程 worker
+po_docs_db = PoDocsDB(db_path=str(DEFAULT_DB_PATH), docs_dir=str(DEFAULT_DOCS_DIR))
 
 SEEDS: list[dict[str, str]] = [
     {

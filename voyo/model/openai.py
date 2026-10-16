@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
@@ -173,6 +174,8 @@ class OpenAiClient:
         )
         if stream:
             return self._stream_async(body, usage, timeout)
+        logger.info("openai request start: model=%s stream=False timeout=%s", model, timeout)
+        _t0 = time.monotonic()
         try:
             resp = await self._async_client.post(self._url, json=body, headers=self._headers, timeout=timeout)
         except httpx.TimeoutException as exc:
@@ -181,6 +184,12 @@ class OpenAiClient:
             raise YoModelException(resp.status_code, resp.text)
         raw = resp.json()
         self._collect_usage(usage, raw.get("usage"))
+        elapsed_s = time.monotonic() - _t0
+        u = raw.get("usage") or {}
+        logger.info(
+            "openai request done: model=%s elapsed_s=%.3f prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+            model, elapsed_s, u.get("prompt_tokens"), u.get("completion_tokens"), u.get("total_tokens"),
+        )
         return raw
 
     @staticmethod
