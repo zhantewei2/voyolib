@@ -8,7 +8,7 @@ import httpx
 
 from voyo.model.base import ModelUsage, build_body
 from voyo.model.rate_limit import RateLimiter
-from voyo.model.types import ExtraBodyInput
+from voyo.model.types import ExtraBodyInput, OpenAiMsg
 from voyo.utils.exception import YoModelException
 from voyo.utils.exception_type import ExceptionType
 
@@ -45,7 +45,7 @@ class OpenAiClient:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[OpenAiMsg],
         system: str | None = None,
         thinking_enabled: bool = False,
         extra_body: ExtraBodyInput | None = None,
@@ -84,7 +84,7 @@ class OpenAiClient:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[OpenAiMsg],
         system: str | None = None,
         thinking_enabled: bool = False,
         extra_body: ExtraBodyInput | None = None,
@@ -122,7 +122,7 @@ class OpenAiClient:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[OpenAiMsg],
         system: str | None = None,
         thinking_enabled: bool = False,
         extra_body: ExtraBodyInput | None = None,
@@ -153,7 +153,7 @@ class OpenAiClient:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[OpenAiMsg],
         system: str | None = None,
         thinking_enabled: bool = False,
         extra_body: ExtraBodyInput | None = None,
@@ -190,7 +190,7 @@ class OpenAiClient:
 
     @staticmethod
     def _make_body(
-        *, model: str, messages: list[dict[str, Any]], system: str | None,
+        *, model: str, messages: list[OpenAiMsg], system: str | None,
         thinking_enabled: bool, temperature: float, max_tokens: int,
         extra_body: ExtraBodyInput | None, stream: bool,
     ) -> dict[str, Any]:

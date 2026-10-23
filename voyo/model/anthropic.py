@@ -7,7 +7,7 @@ import httpx
 
 from voyo.model.base import ModelUsage, build_body
 from voyo.model.rate_limit import RateLimiter
-from voyo.model.types import ExtraBodyInput
+from voyo.model.types import AnthropicMsg, ExtraBodyInput
 from voyo.utils.exception import YoModelException
 from voyo.utils.exception_type import ExceptionType
 
@@ -48,7 +48,7 @@ class AnthropicClient:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[AnthropicMsg],
         system: str | None = None,
         thinking_enabled: bool = False,
         extra_body: ExtraBodyInput | None = None,
@@ -87,7 +87,7 @@ class AnthropicClient:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[AnthropicMsg],
         system: str | None = None,
         thinking_enabled: bool = False,
         extra_body: ExtraBodyInput | None = None,
@@ -125,7 +125,7 @@ class AnthropicClient:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[AnthropicMsg],
         system: str | None = None,
         thinking_enabled: bool = False,
         extra_body: ExtraBodyInput | None = None,
@@ -156,7 +156,7 @@ class AnthropicClient:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[AnthropicMsg],
         system: str | None = None,
         thinking_enabled: bool = False,
         extra_body: ExtraBodyInput | None = None,

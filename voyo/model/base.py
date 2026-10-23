@@ -47,14 +47,18 @@ def build_body(
     }
     if system:
         body["system"] = system
+
     if extra_body:
         body.update(extra_body)
-    # 关闭 thinking 的字段常驻，网关只认其中一种写法，全部写上
-    enabled = thinking_enabled is True
-    body["enable_thinking"] = enabled
-    kwargs = dict(body.get("chat_template_kwargs") or {})
-    kwargs["enable_thinking"] = enabled
-    body["chat_template_kwargs"] = kwargs
-    if not enabled:
-        body["thinking"] = {"type": "disabled"}
+
+    if thinking_enabled is not None:
+        # for anthropic
+        body["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
+        # for openai
+        body["enabled_thinking"] = thinking_enabled
+        # for qwen chat_template_kwargs
+        chat_kwargs= dict(body.get("chat_template_kwargs") or {})
+        chat_kwargs["enable_thinking"]=thinking_enabled
+        body["chat_template_kwargs"]= chat_kwargs     
+        
     return body

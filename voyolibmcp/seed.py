@@ -58,6 +58,12 @@ SEEDS: list[dict[str, str]] = [
     {
         "type": "tool",
         "lang": "common",
+        "question": "openai responses OpenAiResponsesClient Responses API LLM 大模型 对话 流式 重试 reasoning minimax instructions",
+        "doc_name": "openai_responses",
+    },
+    {
+        "type": "tool",
+        "lang": "common",
         "question": "embedding EmbeddingClient 向量 嵌入 embed text-embedding",
         "doc_name": "embedding",
     },

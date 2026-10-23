@@ -21,6 +21,7 @@ def main() -> int:
         ("common logger", lambda: get_common_tool_doc(tool_name="logger")),
         ("common methods", lambda: get_common_tool_doc(query="FastAPI 响应")),
         ("ai openai", lambda: get_ai_tool_doc(tool_name="openai")),
+        ("ai openai_responses", lambda: get_ai_tool_doc(tool_name="openai_responses")),
         ("ai embedding", lambda: get_ai_tool_doc(tool_name="embedding")),
         ("ai chunk", lambda: get_ai_tool_doc(tool_name="chunk")),
         ("db mysql", lambda: get_db_tool_doc(db_type="mysql", query="连接池")),
